@@ -109,6 +109,14 @@ def generate_essay_questions(llm, lesson_name, n):
     """, {"lesson": lesson_name})
     
     context = "\n".join([r['fact'] for r in res if r['fact'] is not None])
+    
+    if not context:
+        return [{
+            "question": "Error: Knowledge Graph is empty. Please upload PDFs and build the graph first.",
+            "bloom_level": "N/A",
+            "key_concepts": [],
+            "rubric": []
+        }]
 
     prompt = f"""
     CONTEXT FROM GRAPH:
