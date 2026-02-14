@@ -102,10 +102,10 @@ def process_pdf_to_graph(pdf_file, llm, vision_llm=None):
         nodes = ["Concept", "Definition", "Process", "Characteristic", "Relationship", "Method", "Example"]
         rels = ["FOLLOWS", "DESCRIBES", "IMPLEMENTS", "PART_OF", "CAUSES", "SIMILAR_TO", "CONTRASTS_WITH", "MENTIONS", "USED_IN"]
     else:
-        print(f"🛠️ Using Ultra-Safe Mode for {getattr(llm, 'model_name', 'fallback model')}")
-        # Simplest possible schema to guarantee tool-calling success on small models
-        nodes = ["Concept"]
-        rels = ["RELATED_TO"]
+        print(f"🛠️ Using free-form schema for {getattr(llm, 'model_name', 'fallback model')}")
+        # Mixtral works best when it can naturally define labels without strict tool-calling constraints.
+        nodes = None
+        rels = None
 
     transformer = LLMGraphTransformer(
         llm=llm,
