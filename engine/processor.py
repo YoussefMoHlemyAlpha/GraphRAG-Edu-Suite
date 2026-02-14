@@ -85,25 +85,27 @@ def process_pdf_to_graph(pdf_file, llm, vision_llm=None):
     lesson_name = pdf_file.name.replace(".pdf", "")
     print(f"📖 Processing: {lesson_name} ({len(raw_text)} characters)")
 
+    # 1. Chunking
+    # 8B models struggle with large contexts and complex JSON outputs
+    is_high_accuracy = "70b" in getattr(llm, "model_name", "").lower()
+    chunk_size = 2000 if is_high_accuracy else 1000
+    chunk_overlap = 200 if is_high_accuracy else 100
+
     # Splitting into chunks ensures the LLM doesn't miss details
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     chunks = text_splitter.split_text(raw_text)
     docs = [Document(page_content=chunk, metadata={"lesson": lesson_name}) for chunk in chunks]
-    print(f"🧩 Split text into {len(docs)} chunks for deep extraction.")
+    print(f"🧩 Split text into {len(docs)} chunks for {'Deep' if is_high_accuracy else 'Safe'} extraction.")
 
     # 2. Transform (Knowledge Graph Extraction)
-    # 8B models struggle with strict schema enforcement (causes tool_use_failed errors)
-    # So we relax constraints if we're not using the high-accuracy model.
-    is_high_accuracy = "70b" in getattr(llm, "model_name", "").lower()
-    
     if is_high_accuracy:
         nodes = ["Concept", "Definition", "Process", "Characteristic", "Relationship", "Method", "Example"]
         rels = ["FOLLOWS", "DESCRIBES", "IMPLEMENTS", "PART_OF", "CAUSES", "SIMILAR_TO", "CONTRASTS_WITH", "MENTIONS", "USED_IN"]
     else:
-        print(f"🛠️ Using guided generic schema for {getattr(llm, 'model_name', 'fallback model')}")
-        # Providing a broad list helps 8B models follow tool-calling format better than None.
-        nodes = ["Concept", "Entity", "Process", "Characteristic", "System", "Method", "Object", "Person", "Place", "Time", "Condition"]
-        rels = ["USES", "IS", "HAS", "PART_OF", "CAUSES", "FOLLOWS", "DESCRIBES", "ACTIONS", "RELATED_TO"]
+        print(f"🛠️ Using Ultra-Safe Mode for {getattr(llm, 'model_name', 'fallback model')}")
+        # Simplest possible schema to guarantee tool-calling success on small models
+        nodes = ["Concept"]
+        rels = ["RELATED_TO"]
 
     transformer = LLMGraphTransformer(
         llm=llm,
@@ -112,7 +114,7 @@ def process_pdf_to_graph(pdf_file, llm, vision_llm=None):
         node_properties=False 
     )
     
-    print(f"🧠 Extracting from {len(docs)} chunks (this may take a few minutes)...")
+    print(f"🧠 Extracting from {len(docs)} chunks (using {'70B' if is_high_accuracy else '8B'} model)...")
     graph_docs = transformer.convert_to_graph_documents(docs)
     
     # Check if anything was actually extracted
