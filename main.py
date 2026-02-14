@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from langchain_ollama import OllamaLLM
 from engine.processor import process_pdf_to_graph
 from engine.generator import generate_graph_quiz, generate_essay_questions, evaluate_essay_response
 from engine.graph_store import QuizGraphStore

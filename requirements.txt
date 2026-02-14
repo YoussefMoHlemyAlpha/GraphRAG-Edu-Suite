@@ -7,4 +7,3 @@ langchain-neo4j
 langchain-groq
 python-dotenv
 PyPDF2
-
