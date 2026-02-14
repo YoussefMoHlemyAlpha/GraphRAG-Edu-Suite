@@ -30,6 +30,12 @@ extraction_llm = ChatGroq(
     model_name="llama-3.3-70b-versatile" 
 )
 
+vision_llm = ChatGroq(
+    temperature=0,
+    groq_api_key=groq_key,
+    model_name="llama-3.2-11b-vision-preview"
+)
+
 llm = ChatGroq(
     temperature=0, 
     groq_api_key=groq_key, 
@@ -68,7 +74,7 @@ with st.sidebar:
                     continue
                 try:
                     with st.spinner(f"Mapping {file.name}..."):
-                        process_pdf_to_graph(file, extraction_llm)
+                        process_pdf_to_graph(file, extraction_llm, vision_llm)
                     st.toast(f"✅ {lesson_name} built successfully!")
                     success_count += 1
                 except Exception as e:

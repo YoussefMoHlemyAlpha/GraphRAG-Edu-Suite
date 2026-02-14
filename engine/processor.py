@@ -1,64 +1,68 @@
-import pytesseract
-from pdf2image import convert_from_path
-import tempfile
+import fitz  # PyMuPDF
+import base64
+import io
+from PIL import Image
 from PyPDF2 import PdfReader
 from langchain_experimental.graph_transformers import LLMGraphTransformer
 from langchain_core.documents import Document
 from engine.graph_store import QuizGraphStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-def perform_ocr(pdf_file):
-    """Fallback OCR extraction for scanned PDFs."""
-    import os
-    tess_path = os.getenv("TESSERACT_PATH")
-    pop_path = os.getenv("POPPLER_PATH")
-
-    if tess_path:
-        pytesseract.pytesseract.tesseract_cmd = tess_path
+def perform_vlm_extraction(pdf_file, vision_llm):
+    """Fallback VLM extraction for scanned PDFs."""
+    print(f"👁️ Starting VLM extraction on {pdf_file.name}...")
     
-    print(f"📷 Starting OCR on {pdf_file.name}...")
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        tmp.write(pdf_file.getvalue())
-        tmp_path = tmp.name
+    # Reset file pointer and read bytes
+    pdf_file.seek(0)
+    pdf_bytes = pdf_file.read()
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     
-    try:
-        # Check if tesseract is reachable
+    extracted_text = ""
+    for i in range(len(doc)):
+        page = doc[i]
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) # Higher resolution
+        img_data = pix.tobytes("png")
+        
+        # Base64 encode
+        base64_image = base64.b64encode(img_data).decode('utf-8')
+        
+        # VLM Call
+        prompt = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Extract all readable text from this page exactly as it appears. If there is no text, return an empty string."},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+                ]
+            }
+        ]
+        
         try:
-            pytesseract.get_tesseract_version()
-        except Exception:
-            raise RuntimeError("Tesseract OCR not found. Please install it and set TESSERACT_PATH in .env")
+            response = vision_llm.invoke(prompt)
+            page_text = response.content.strip()
+            extracted_text += f"\n--- Page {i+1} ---\n{page_text}"
+        except Exception as e:
+            print(f"⚠️ VLM error on page {i+1}: {str(e)}")
+            
+    doc.close()
+    return extracted_text.strip()
 
-        images = convert_from_path(tmp_path, poppler_path=pop_path)
-        extracted_text = ""
-        for i, image in enumerate(images):
-            text = pytesseract.image_to_string(image)
-            extracted_text += f"\n--- Page {i+1} ---\n{text}"
-        return extracted_text.strip()
-    except Exception as e:
-        error_msg = str(e)
-        if "poppler" in error_msg.lower():
-            raise RuntimeError("Poppler not found. Please install it and set POPPLER_PATH in .env")
-        raise e
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-
-def process_pdf_to_graph(pdf_file, llm):
+def process_pdf_to_graph(pdf_file, llm, vision_llm=None):
     store = QuizGraphStore()
     
     # 1. Extract and Chunk Text
     reader = PdfReader(pdf_file)
     raw_text = "\n".join([p.extract_text() for p in reader.pages if p.extract_text()]).strip()
     
-    # Threshold: If less than 100 characters extracted, try OCR
-    if len(raw_text) < 100:
-        print(f"🔍 Low text density ({len(raw_text)} chars). Attempting OCR fallback...")
+    # Threshold: If less than 100 characters extracted, try VLM
+    if len(raw_text) < 100 and vision_llm:
+        print(f"🔍 Low text density ({len(raw_text)} chars). Attempting VLM fallback...")
         try:
-            raw_text = perform_ocr(pdf_file)
+            raw_text = perform_vlm_extraction(pdf_file, vision_llm)
         except Exception as e:
-            print(f"❌ OCR Failed: {str(e)}")
+            print(f"❌ VLM Extraction Failed: {str(e)}")
             if not raw_text:
-                raise ValueError(f"No readable text found in {pdf_file.name} and OCR failed.")
+                raise ValueError(f"No readable text found in {pdf_file.name} and VLM failed. Error: {str(e)}")
 
     if not raw_text:
         print(f"⚠️ Failed to extract text from {pdf_file.name}")

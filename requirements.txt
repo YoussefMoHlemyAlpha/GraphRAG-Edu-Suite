@@ -10,5 +10,4 @@ langchain-experimental
 python-dotenv
 PyPDF2
 altair
-pytesseract
-pdf2image
+pymupdf
