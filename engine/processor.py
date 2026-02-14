@@ -9,20 +9,37 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 def perform_ocr(pdf_file):
     """Fallback OCR extraction for scanned PDFs."""
+    import os
+    tess_path = os.getenv("TESSERACT_PATH")
+    pop_path = os.getenv("POPPLER_PATH")
+
+    if tess_path:
+        pytesseract.pytesseract.tesseract_cmd = tess_path
+    
     print(f"📷 Starting OCR on {pdf_file.name}...")
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(pdf_file.getvalue())
         tmp_path = tmp.name
     
     try:
-        images = convert_from_path(tmp_path)
+        # Check if tesseract is reachable
+        try:
+            pytesseract.get_tesseract_version()
+        except Exception:
+            raise RuntimeError("Tesseract OCR not found. Please install it and set TESSERACT_PATH in .env")
+
+        images = convert_from_path(tmp_path, poppler_path=pop_path)
         extracted_text = ""
         for i, image in enumerate(images):
             text = pytesseract.image_to_string(image)
             extracted_text += f"\n--- Page {i+1} ---\n{text}"
         return extracted_text.strip()
+    except Exception as e:
+        error_msg = str(e)
+        if "poppler" in error_msg.lower():
+            raise RuntimeError("Poppler not found. Please install it and set POPPLER_PATH in .env")
+        raise e
     finally:
-        import os
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
