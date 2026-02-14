@@ -73,8 +73,18 @@ with st.sidebar:
                     st.info(f"⏭️ {lesson_name} already exists.")
                     continue
                 try:
-                    with st.spinner(f"Mapping {file.name}..."):
-                        process_pdf_to_graph(file, extraction_llm, vision_llm)
+                    with st.spinner(f"Mapping {file.name} using High Accuracy model..."):
+                        try:
+                            process_pdf_to_graph(file, extraction_llm, vision_llm)
+                        except Exception as e:
+                            # Check for rate limit error (Groq uses 429)
+                            if "429" in str(e) or "rate_limit" in str(e).lower():
+                                st.warning(f"⚠️ {lesson_name}: 70B model rate limit reached. Falling back to 8B model...")
+                                with st.spinner(f"Retrying {file.name} with Efficiency model..."):
+                                    process_pdf_to_graph(file, llm, vision_llm)
+                            else:
+                                raise e # Re-raise if it's not a rate limit
+                                
                     st.toast(f"✅ {lesson_name} built successfully!")
                     success_count += 1
                 except Exception as e:
