@@ -33,7 +33,7 @@ extraction_llm = ChatGroq(
 vision_llm = ChatGroq(
     temperature=0,
     groq_api_key=groq_key,
-    model_name="llama-3.2-90b-vision-preview"
+    model_name="meta-llama/llama-4-scout-17b-16e-instruct"
 )
 
 llm = ChatGroq(
