@@ -1,3 +1,4 @@
+from langchain_core.messages import HumanMessage
 import fitz  # PyMuPDF
 import base64
 import io
@@ -17,8 +18,12 @@ def perform_vlm_extraction(pdf_file, vision_llm):
     pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     
+    total_pages = len(doc)
+    print(f"📄 PDF has {total_pages} pages.")
+    
     extracted_text = ""
-    for i in range(len(doc)):
+    for i in range(total_pages):
+        print(f"⏳ Processing page {i+1}/{total_pages}...")
         page = doc[i]
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) # Higher resolution
         img_data = pix.tobytes("png")
@@ -26,23 +31,28 @@ def perform_vlm_extraction(pdf_file, vision_llm):
         # Base64 encode
         base64_image = base64.b64encode(img_data).decode('utf-8')
         
-        # VLM Call
-        prompt = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Extract all readable text from this page exactly as it appears. If there is no text, return an empty string."},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
-                ]
-            }
-        ]
+        # VLM Call using HumanMessage
+        message = HumanMessage(
+            content=[
+                {"type": "text", "text": "Extract all readable text from this page exactly as it appears. If there is no text, return an empty string."},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{base64_image}"},
+                },
+            ]
+        )
         
         try:
-            response = vision_llm.invoke(prompt)
+            response = vision_llm.invoke([message])
             page_text = response.content.strip()
+            if page_text:
+                print(f"✅ Page {i+1} extracted ({len(page_text)} chars). Preview: {page_text[:50]}...")
+            else:
+                print(f"⚠️ Page {i+1} returned empty text.")
             extracted_text += f"\n--- Page {i+1} ---\n{page_text}"
         except Exception as e:
-            print(f"⚠️ VLM error on page {i+1}: {str(e)}")
+            print(f"❌ VLM error on page {i+1}: {str(e)}")
+            raise e
             
     doc.close()
     return extracted_text.strip()
