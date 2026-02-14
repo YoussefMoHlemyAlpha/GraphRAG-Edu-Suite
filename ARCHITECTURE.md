@@ -111,6 +111,41 @@ flowchart TD
     class GRAPH_DB db;
 ```
 
+## ⏳ The RAG Workflow (Sequence)
+
+This sequence diagram shows exactly what happens, step-by-step, when you click **"Generate Quiz"**.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant App as Streamlit UI
+    participant RAG as RAG Controller
+    participant DB as Neo4j Graph
+    participant LLM as Llama 3 (Ollama)
+
+    User->>App: Selects Lesson & clicks "Generate Quiz"
+    App->>RAG: Request Quiz (Topic, Difficulty)
+    
+    Note over RAG, DB: 1. RETRIEVAL PHASE
+    RAG->>DB: MATCH (n)-[r]->(m) WHERE ... (Cypher Query)
+    DB-->>RAG: Returns Related Facts (Nodes + Edges)
+    
+    Note over RAG, LLM: 2. AUGMENTATION PHASE
+    RAG->>RAG: Formats Facts into Context String
+    RAG->>LLM: Send Prompt + Context + Strict JSON Schema
+    
+    Note over LLM: 3. GENERATION PHASE
+    LLM-->>RAG: Generates Quiz JSON (Questions + Options)
+    
+    Note over RAG, LLM: 4. SELF-CORRECTION (CRITIC)
+    RAG->>LLM: "Critique this quiz against the facts"
+    LLM-->>RAG: Returns Verified JSON
+    
+    RAG-->>App: Display Final Quiz
+    App-->>User: Shows Interactive Quiz
+```
+
 ### 1. The Knowledge Extraction Phase
 - **Chunking**: Documents are split into overlapping chunks (1000-2000 chars) so the LLM doesn't lose context.
 - **Entity Extraction**: `LLMGraphTransformer` uses Llama 3 to identify "Concepts", "Processes", and "Relationships".
