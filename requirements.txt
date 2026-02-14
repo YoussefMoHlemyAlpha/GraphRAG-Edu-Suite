@@ -6,6 +6,7 @@ langchain-community
 langchain-core
 langchain-neo4j
 langchain-groq
+langchain-ollama
 langchain-experimental
 python-dotenv
 PyPDF2

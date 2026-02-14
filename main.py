@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from engine.processor import process_pdf_to_graph
 from engine.generator import generate_graph_quiz, generate_essay_questions, evaluate_essay_response
 from engine.graph_store import QuizGraphStore
-from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
 from dotenv import load_dotenv
 
 
@@ -14,32 +14,22 @@ load_dotenv()
 # --- 1. GLOBAL CONFIGURATION ---
 st.set_page_config(page_title="GraphRAG Tutor Pro", layout="wide", page_icon="🧠")
 
-# This order ensures it works everywhere
-groq_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
-
-if not groq_key:
-    st.error("Missing GROQ_API_KEY. Please check your .env or Streamlit Secrets.")
-    st.stop()
-
+# Ollama doesn't require an API key, so we remove the check
 # 3. Initialize Models
-# We use a larger model for Graph Extraction (prevents 400 errors)
-# and a faster model for dynamic Quiz Generation
-extraction_llm = ChatGroq(
-    temperature=0, 
-    groq_api_key=groq_key, 
-    model_name="llama-3.3-70b-versatile" 
-)
-
-vision_llm = ChatGroq(
+# We use llama3:8b for all tasks now to keep it free and local
+extraction_llm = ChatOllama(
+    model="llama3:8b",
     temperature=0,
-    groq_api_key=groq_key,
-    model_name="meta-llama/llama-4-scout-17b-16e-instruct"
 )
 
-llm = ChatGroq(
-    temperature=0, 
-    groq_api_key=groq_key, 
-    model_name="mixtral-8x22b-32768" 
+vision_llm = ChatOllama(
+    model="llava", # LLaVA is used for local multimodal (image-to-text) tasks
+    temperature=0,
+)
+
+llm = ChatOllama(
+    model="llama3:8b",
+    temperature=0,
 )
 store = QuizGraphStore()
 

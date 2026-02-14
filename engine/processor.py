@@ -85,9 +85,12 @@ def process_pdf_to_graph(pdf_file, llm, vision_llm=None):
     lesson_name = pdf_file.name.replace(".pdf", "")
     print(f"📖 Processing: {lesson_name} ({len(raw_text)} characters)")
 
-    # 1. Chunking
-    # 8B models struggle with large contexts and complex JSON outputs
-    is_high_accuracy = "70b" in getattr(llm, "model_name", "").lower()
+    # Chunking
+    # Local 8B models struggle with large contexts and complex JSON outputs
+    # We'll treat Llama 3 8B as standard accuracy to ensure reliability
+    model_name = getattr(llm, "model", getattr(llm, "model_name", "")).lower()
+    is_high_accuracy = "70b" in model_name or "pro" in model_name
+    
     chunk_size = 2000 if is_high_accuracy else 1000
     chunk_overlap = 200 if is_high_accuracy else 100
 
@@ -102,8 +105,8 @@ def process_pdf_to_graph(pdf_file, llm, vision_llm=None):
         nodes = ["Concept", "Definition", "Process", "Characteristic", "Relationship", "Method", "Example"]
         rels = ["FOLLOWS", "DESCRIBES", "IMPLEMENTS", "PART_OF", "CAUSES", "SIMILAR_TO", "CONTRASTS_WITH", "MENTIONS", "USED_IN"]
     else:
-        print(f"🛠️ Using free-form schema for {getattr(llm, 'model_name', 'fallback model')}")
-        # Mixtral works best when it can naturally define labels without strict tool-calling constraints.
+        print(f"🛠️ Using free-form schema for {model_name}")
+        # Llama 3 works best when it can naturally define labels without strict tool-calling constraints.
         nodes = None
         rels = None
 
@@ -114,7 +117,7 @@ def process_pdf_to_graph(pdf_file, llm, vision_llm=None):
         node_properties=False 
     )
     
-    print(f"🧠 Extracting from {len(docs)} chunks (using {'70B' if is_high_accuracy else '8B'} model)...")
+    print(f"🧠 Extracting from {len(docs)} chunks (using {model_name})...")
     graph_docs = transformer.convert_to_graph_documents(docs)
     
     # Check if anything was actually extracted
