@@ -48,21 +48,35 @@ with st.sidebar:
     uploaded = st.file_uploader("Upload Lesson PDFs", type="pdf", accept_multiple_files=True)
     
     if st.button("🏗️ Build Knowledge Graph", use_container_width=True):
-        if uploaded:
+        if not uploaded:
+            st.warning("⚠️ Please upload at least one PDF first.")
+        else:
             existing = store.get_lessons()
+            success_count = 0
             for file in uploaded:
                 lesson_name = file.name.replace(".pdf", "")
                 if lesson_name in existing:
                     st.info(f"⏭️ {lesson_name} already exists.")
                     continue
-                with st.spinner(f"Mapping {file.name}..."):
-                    process_pdf_to_graph(file, llm)
-            st.success("Graph Updated!")
-            st.rerun()
+                try:
+                    with st.spinner(f"Mapping {file.name}..."):
+                        process_pdf_to_graph(file, llm)
+                    st.toast(f"✅ {lesson_name} built successfully!")
+                    success_count += 1
+                except Exception as e:
+                    st.error(f"❌ Failed to process {file.name}: {str(e)}")
+            
+            if success_count > 0:
+                st.success(f"Successfully processed {success_count} lesson(s)!")
+                # Give user a moment to see success or rely on toast + rerun
+                st.rerun()
     
     st.divider()
     if st.button("🗑️ Reset All Knowledge", type="primary", use_container_width=True):
-        store.wipe_database()
+        with st.spinner("Clearing database..."):
+            store.wipe_database()
+            st.toast("🗑️ Database wiped clean.")
+        st.success("All knowledge has been reset.")
         st.rerun()
 
 # --- 3. MAIN UI LAYOUT ---

@@ -9,9 +9,13 @@ def process_pdf_to_graph(pdf_file, llm):
     
     # 1. Extract and Chunk Text
     reader = PdfReader(pdf_file)
-    raw_text = "\n".join([p.extract_text() for p in reader.pages if p.extract_text()])
-    lesson_name = pdf_file.name.replace(".pdf", "")
+    raw_text = "\n".join([p.extract_text() for p in reader.pages if p.extract_text()]).strip()
     
+    if not raw_text:
+        print(f"⚠️ Failed to extract text from {pdf_file.name}")
+        raise ValueError(f"No readable text found in {pdf_file.name}. It might be an image-only PDF or empty.")
+
+    lesson_name = pdf_file.name.replace(".pdf", "")
     print(f"📖 Processing: {lesson_name} ({len(raw_text)} characters)")
 
     # Splitting into chunks ensures the LLM doesn't miss details
@@ -31,6 +35,12 @@ def process_pdf_to_graph(pdf_file, llm):
     print(f"🧠 Extracting from {len(docs)} chunks (this may take a few minutes)...")
     graph_docs = transformer.convert_to_graph_documents(docs)
     
+    # Check if anything was actually extracted
+    total_nodes = sum(len(g_doc.nodes) for g_doc in graph_docs)
+    if total_nodes == 0:
+        print(f"⚠️ No entities extracted from {lesson_name}")
+        raise ValueError(f"The AI could not identify any key concepts or relationships in {lesson_name}. The content might be too short or unrelated to the schema.")
+
     # 3. Load into Neo4j
     store.graph.add_graph_documents(graph_docs, baseEntityLabel=True, include_source=True)
     
