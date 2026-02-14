@@ -9,7 +9,7 @@ from langchain_core.documents import Document
 from engine.graph_store import QuizGraphStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-def perform_vlm_extraction(pdf_file, vision_llm):
+def extract_text_vlm(pdf_file, vision_llm):
     """Fallback VLM extraction for scanned PDFs."""
     print(f"👁️ Starting VLM extraction on {pdf_file.name}...")
     
@@ -57,18 +57,22 @@ def perform_vlm_extraction(pdf_file, vision_llm):
     doc.close()
     return extracted_text.strip()
 
+def extract_text_pypdf2(pdf_file):
+    """Standard text extraction using PyPDF2."""
+    reader = PdfReader(pdf_file)
+    return "\n".join([p.extract_text() for p in reader.pages if p.extract_text()]).strip()
+
 def process_pdf_to_graph(pdf_file, llm, vision_llm=None):
     store = QuizGraphStore()
     
-    # 1. Extract and Chunk Text
-    reader = PdfReader(pdf_file)
-    raw_text = "\n".join([p.extract_text() for p in reader.pages if p.extract_text()]).strip()
+    # 1. Extract Text
+    raw_text = extract_text_pypdf2(pdf_file)
     
-    # Threshold: If less than 100 characters extracted, try VLM
+    # Check if we need VLM fallback
     if len(raw_text) < 100 and vision_llm:
         print(f"🔍 Low text density ({len(raw_text)} chars). Attempting VLM fallback...")
         try:
-            raw_text = perform_vlm_extraction(pdf_file, vision_llm)
+            raw_text = extract_text_vlm(pdf_file, vision_llm)
         except Exception as e:
             print(f"❌ VLM Extraction Failed: {str(e)}")
             if not raw_text:
