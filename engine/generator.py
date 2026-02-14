@@ -56,7 +56,7 @@ def generate_graph_quiz(llm, lesson_name, n):
     """
     
     try:
-        raw_quiz = llm.invoke(gen_prompt)
+        raw_quiz = llm.invoke(gen_prompt).content
     except Exception as e:
         print(f"❌ Groq Generation Error: {str(e)}")
         return [{"question": f"Groq Error: {str(e)}. Please check your API key or model access.", "options": ["N/A"], "correct_index": 0, "bloom_level": "N/A"}]
@@ -80,7 +80,7 @@ def generate_graph_quiz(llm, lesson_name, n):
 
     ### OUTPUT: Return ONLY the final JSON array.
     """
-    verified_quiz = llm.invoke(critique_prompt)
+    verified_quiz = llm.invoke(critique_prompt).content
     
     try:
         data = json.loads(verified_quiz)
@@ -142,7 +142,7 @@ def generate_essay_questions(llm, lesson_name, n):
     ]
     """
     try:
-        raw_output = llm.invoke(prompt)
+        raw_output = llm.invoke(prompt).content
     except Exception as e:
         import streamlit as st
         st.error(f"Groq API Error: {str(e)}")
@@ -171,7 +171,10 @@ def evaluate_essay_response(llm, question_obj, student_text):
       "missed_entities": ["concept1", "concept2"]
     }}
     """
-    raw_eval = llm.invoke(eval_prompt)
+    try:
+        raw_eval = llm.invoke(eval_prompt).content
+    except Exception as e:
+        return {"score": 0, "feedback": f"Evaluation Error: {str(e)}", "missed_entities": []}
     return parse_json_safely(raw_eval, is_list=False)
 
 def parse_json_safely(input_text, is_list=True):
