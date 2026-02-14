@@ -1,0 +1,10 @@
+streamlit
+pandas
+matplotlib
+langchain
+langchain-community
+langchain-neo4j
+langchain-groq
+python-dotenv
+PyPDF2
+

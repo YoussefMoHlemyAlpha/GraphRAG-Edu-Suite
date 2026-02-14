@@ -1,0 +1,5 @@
+.env
+__pycache__/
+venv/
+.streamlit/config.toml
+.DS_Store

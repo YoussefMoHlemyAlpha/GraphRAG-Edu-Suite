@@ -1,0 +1,62 @@
+from PyPDF2 import PdfReader
+from langchain_experimental.graph_transformers import LLMGraphTransformer
+from langchain_core.documents import Document
+from engine.graph_store import QuizGraphStore
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+def process_pdf_to_graph(pdf_file, llm):
+    store = QuizGraphStore()
+    
+    # 1. Extract and Chunk Text
+    reader = PdfReader(pdf_file)
+    raw_text = "\n".join([p.extract_text() for p in reader.pages if p.extract_text()])
+    lesson_name = pdf_file.name.replace(".pdf", "")
+    
+    print(f"📖 Processing: {lesson_name} ({len(raw_text)} characters)")
+
+    # Splitting into chunks ensures the LLM doesn't miss details
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
+    chunks = text_splitter.split_text(raw_text)
+    docs = [Document(page_content=chunk, metadata={"lesson": lesson_name}) for chunk in chunks]
+    print(f"🧩 Split text into {len(docs)} chunks for deep extraction.")
+
+    # 2. Transform (Knowledge Graph Extraction)
+    transformer = LLMGraphTransformer(
+        llm=llm,
+        allowed_nodes=["Concept", "Definition", "Process", "Characteristic", "Relationship", "Method", "Example"],
+        allowed_relationships=["FOLLOWS", "DESCRIBES", "IMPLEMENTS", "PART_OF", "CAUSES", "SIMILAR_TO", "CONTRASTS_WITH", "MENTIONS","USED_IN"],
+        node_properties=False 
+    )
+    
+    print(f"🧠 Extracting from {len(docs)} chunks (this may take a few minutes)...")
+    graph_docs = transformer.convert_to_graph_documents(docs)
+    
+    # 3. Load into Neo4j
+    store.graph.add_graph_documents(graph_docs, baseEntityLabel=True, include_source=True)
+    
+    # 4. Manual Linking (The Reliability Booster)
+    # We loop through all processed chunks and link their nodes
+    linked_nodes = 0
+    for g_doc in graph_docs:
+        if g_doc.nodes:
+            for node in g_doc.nodes:
+                link_single_query = """
+                MERGE (l:Lesson {name: $lesson})
+                MERGE (n:__Entity__ {id: $node_id})
+                MERGE (n)-[:PART_OF]->(l)
+                """
+                store.query(link_single_query, {"lesson": lesson_name, "node_id": node.id})
+                linked_nodes += 1
+    
+    print(f"🔗 Linked {linked_nodes} unique concepts to lesson: {lesson_name}")
+    
+    # Also ensure the Document node itself is linked
+    link_doc_query = """
+    MERGE (l:Lesson {name: $lesson})
+    WITH l
+    MATCH (d:Document) WHERE d.lesson = $lesson
+    MERGE (d)-[:PART_OF]->(l)
+    """
+    store.query(link_doc_query, {"lesson": lesson_name})
+    
+    return lesson_name
