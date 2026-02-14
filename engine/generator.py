@@ -55,7 +55,11 @@ def generate_graph_quiz(llm, lesson_name, n):
     ]
     """
     
-    raw_quiz = llm.invoke(gen_prompt)
+    try:
+        raw_quiz = llm.invoke(gen_prompt)
+    except Exception as e:
+        print(f"❌ Groq Generation Error: {str(e)}")
+        return [{"question": f"Groq Error: {str(e)}. Please check your API key or model access.", "options": ["N/A"], "correct_index": 0, "bloom_level": "N/A"}]
 
     # Step 2: Verification
     critique_prompt = f"""
@@ -137,7 +141,17 @@ def generate_essay_questions(llm, lesson_name, n):
       }}
     ]
     """
-    raw_output = llm.invoke(prompt)
+    try:
+        raw_output = llm.invoke(prompt)
+    except Exception as e:
+        import streamlit as st
+        st.error(f"Groq API Error: {str(e)}")
+        return [{
+            "question": f"Error: {str(e)}",
+            "bloom_level": "N/A",
+            "key_concepts": [],
+            "rubric": []
+        }]
     return parse_json_safely(raw_output)
 
 def evaluate_essay_response(llm, question_obj, student_text):

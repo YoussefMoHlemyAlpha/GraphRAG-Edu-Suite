@@ -25,7 +25,7 @@ if not groq_key:
 llm = ChatGroq(
     temperature=0, 
     groq_api_key=groq_key, 
-    model_name="llama-3.1-70b-versatile" 
+    model_name="llama-3.1-8b-instant" 
 )
 store = QuizGraphStore()
 
