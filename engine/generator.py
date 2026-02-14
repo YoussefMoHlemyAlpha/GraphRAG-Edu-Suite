@@ -1,5 +1,5 @@
 import json
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 from engine.graph_store import QuizGraphStore
 import re
 def generate_graph_quiz(llm, lesson_name, n):

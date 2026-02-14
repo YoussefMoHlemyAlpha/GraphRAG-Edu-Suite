@@ -3,8 +3,9 @@ pandas
 matplotlib
 langchain
 langchain-community
+langchain-core
 langchain-neo4j
 langchain-groq
+langchain-experimental
 python-dotenv
 PyPDF2
-langchain-experimental
