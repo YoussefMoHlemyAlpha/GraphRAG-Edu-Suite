@@ -100,9 +100,10 @@ def process_pdf_to_graph(pdf_file, llm, vision_llm=None):
         nodes = ["Concept", "Definition", "Process", "Characteristic", "Relationship", "Method", "Example"]
         rels = ["FOLLOWS", "DESCRIBES", "IMPLEMENTS", "PART_OF", "CAUSES", "SIMILAR_TO", "CONTRASTS_WITH", "MENTIONS", "USED_IN"]
     else:
-        print(f"🛠️ Using flexible schema for {getattr(llm, 'model_name', 'fallback model')}")
-        nodes = None # Allow everything
-        rels = None  # Allow everything
+        print(f"🛠️ Using guided generic schema for {getattr(llm, 'model_name', 'fallback model')}")
+        # Providing a broad list helps 8B models follow tool-calling format better than None.
+        nodes = ["Concept", "Entity", "Process", "Characteristic", "System", "Method", "Object", "Person", "Place", "Time", "Condition"]
+        rels = ["USES", "IS", "HAS", "PART_OF", "CAUSES", "FOLLOWS", "DESCRIBES", "ACTIONS", "RELATED_TO"]
 
     transformer = LLMGraphTransformer(
         llm=llm,
