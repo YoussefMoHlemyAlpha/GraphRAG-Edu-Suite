@@ -9,3 +9,4 @@ langchain-groq
 langchain-experimental
 python-dotenv
 PyPDF2
+altair

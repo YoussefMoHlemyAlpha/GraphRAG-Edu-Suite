@@ -1,4 +1,5 @@
 import os
+import streamlit as st
 from dotenv import load_dotenv
 from langchain_neo4j import Neo4jGraph
 
@@ -6,10 +7,14 @@ load_dotenv()
 
 class QuizGraphStore:
     def __init__(self):
-        # We use neo4j+ssc to bypass that Windows SSL error we saw
-        uri = os.getenv("NEO4J_URI")
-        user = os.getenv("NEO4J_USERNAME")
-        pwd = os.getenv("NEO4J_PASSWORD")
+        # Fallback order: environment variables (.env) -> Streamlit secrets
+        uri = os.getenv("NEO4J_URI") or st.secrets.get("NEO4J_URI")
+        user = os.getenv("NEO4J_USERNAME") or st.secrets.get("NEO4J_USERNAME")
+        pwd = os.getenv("NEO4J_PASSWORD") or st.secrets.get("NEO4J_PASSWORD")
+
+        if not all([uri, user, pwd]):
+            st.error("Missing Neo4j configuration. Please check your .env or Streamlit Secrets.")
+            raise ValueError("Incomplete Neo4j credentials.")
 
         try:
             self.graph = Neo4jGraph(
