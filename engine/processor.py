@@ -92,10 +92,22 @@ def process_pdf_to_graph(pdf_file, llm, vision_llm=None):
     print(f"🧩 Split text into {len(docs)} chunks for deep extraction.")
 
     # 2. Transform (Knowledge Graph Extraction)
+    # 8B models struggle with strict schema enforcement (causes tool_use_failed errors)
+    # So we relax constraints if we're not using the high-accuracy model.
+    is_high_accuracy = "70b" in getattr(llm, "model_name", "").lower()
+    
+    if is_high_accuracy:
+        nodes = ["Concept", "Definition", "Process", "Characteristic", "Relationship", "Method", "Example"]
+        rels = ["FOLLOWS", "DESCRIBES", "IMPLEMENTS", "PART_OF", "CAUSES", "SIMILAR_TO", "CONTRASTS_WITH", "MENTIONS", "USED_IN"]
+    else:
+        print(f"🛠️ Using flexible schema for {getattr(llm, 'model_name', 'fallback model')}")
+        nodes = None # Allow everything
+        rels = None  # Allow everything
+
     transformer = LLMGraphTransformer(
         llm=llm,
-        allowed_nodes=["Concept", "Definition", "Process", "Characteristic", "Relationship", "Method", "Example"],
-        allowed_relationships=["FOLLOWS", "DESCRIBES", "IMPLEMENTS", "PART_OF", "CAUSES", "SIMILAR_TO", "CONTRASTS_WITH", "MENTIONS","USED_IN"],
+        allowed_nodes=nodes,
+        allowed_relationships=rels,
         node_properties=False 
     )
     
