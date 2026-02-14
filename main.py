@@ -39,7 +39,7 @@ vision_llm = ChatGroq(
 llm = ChatGroq(
     temperature=0, 
     groq_api_key=groq_key, 
-    model_name="llama-3.1-8b-instant" 
+    model_name="mixtral-8x7b-32768" 
 )
 store = QuizGraphStore()
 
@@ -79,7 +79,7 @@ with st.sidebar:
                         except Exception as e:
                             # Check for rate limit error (Groq uses 429)
                             if "429" in str(e) or "rate_limit" in str(e).lower():
-                                st.warning(f"⚠️ {lesson_name}: 70B model rate limit reached. Falling back to 8B model...")
+                                st.warning(f"⚠️ {lesson_name}: 70B model rate limit reached. Falling back to Mixtral...")
                                 with st.spinner(f"Retrying {file.name} with Efficiency model..."):
                                     process_pdf_to_graph(file, llm, vision_llm)
                             else:
