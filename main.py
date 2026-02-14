@@ -21,7 +21,15 @@ if not groq_key:
     st.error("Missing GROQ_API_KEY. Please check your .env or Streamlit Secrets.")
     st.stop()
 
-# 3. Initialize the Free Open-Source Model
+# 3. Initialize Models
+# We use a larger model for Graph Extraction (prevents 400 errors)
+# and a faster model for dynamic Quiz Generation
+extraction_llm = ChatGroq(
+    temperature=0, 
+    groq_api_key=groq_key, 
+    model_name="llama-3.3-70b-versatile" 
+)
+
 llm = ChatGroq(
     temperature=0, 
     groq_api_key=groq_key, 
@@ -60,7 +68,7 @@ with st.sidebar:
                     continue
                 try:
                     with st.spinner(f"Mapping {file.name}..."):
-                        process_pdf_to_graph(file, llm)
+                        process_pdf_to_graph(file, extraction_llm)
                     st.toast(f"✅ {lesson_name} built successfully!")
                     success_count += 1
                 except Exception as e:

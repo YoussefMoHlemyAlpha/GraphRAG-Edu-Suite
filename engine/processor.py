@@ -1,8 +1,30 @@
+import pytesseract
+from pdf2image import convert_from_path
+import tempfile
 from PyPDF2 import PdfReader
 from langchain_experimental.graph_transformers import LLMGraphTransformer
 from langchain_core.documents import Document
 from engine.graph_store import QuizGraphStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+def perform_ocr(pdf_file):
+    """Fallback OCR extraction for scanned PDFs."""
+    print(f"📷 Starting OCR on {pdf_file.name}...")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(pdf_file.getvalue())
+        tmp_path = tmp.name
+    
+    try:
+        images = convert_from_path(tmp_path)
+        extracted_text = ""
+        for i, image in enumerate(images):
+            text = pytesseract.image_to_string(image)
+            extracted_text += f"\n--- Page {i+1} ---\n{text}"
+        return extracted_text.strip()
+    finally:
+        import os
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 def process_pdf_to_graph(pdf_file, llm):
     store = QuizGraphStore()
@@ -11,6 +33,16 @@ def process_pdf_to_graph(pdf_file, llm):
     reader = PdfReader(pdf_file)
     raw_text = "\n".join([p.extract_text() for p in reader.pages if p.extract_text()]).strip()
     
+    # Threshold: If less than 100 characters extracted, try OCR
+    if len(raw_text) < 100:
+        print(f"🔍 Low text density ({len(raw_text)} chars). Attempting OCR fallback...")
+        try:
+            raw_text = perform_ocr(pdf_file)
+        except Exception as e:
+            print(f"❌ OCR Failed: {str(e)}")
+            if not raw_text:
+                raise ValueError(f"No readable text found in {pdf_file.name} and OCR failed.")
+
     if not raw_text:
         print(f"⚠️ Failed to extract text from {pdf_file.name}")
         raise ValueError(f"No readable text found in {pdf_file.name}. It might be an image-only PDF or empty.")
