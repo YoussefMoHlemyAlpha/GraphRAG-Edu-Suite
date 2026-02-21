@@ -20,7 +20,7 @@ st.set_page_config(
 # ── Model Initialisation ─────────────────────────────────────────────────────
 # Using DeepSeek-R1 (8B) for high-quality extraction (slow on 4GB VRAM)
 extraction_llm = ChatOllama(
-    model="deepseek-r1:8b", 
+    model="deepseek-r1:1.5b", 
     temperature=0,
     num_ctx=4096
 )

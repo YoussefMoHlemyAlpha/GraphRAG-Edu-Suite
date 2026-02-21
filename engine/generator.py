@@ -117,7 +117,7 @@ def generate_graph_quiz(
     critic_llm = kwargs.get("critic_llm") or llm
     from engine.vram_util import stop_ollama_model
 
-    _emit(status_callback, "🔍 Step 7 — Retrieving context…", 0.10)
+    _emit(status_callback, "🔍 Step 7 — Retrieving graph knowledge…", 0.10)
     context, high_value = _retrieve_graph_context(store, lesson_name)
     print(f"--- RETRIEVED CONTEXT ---\n{context}\n------------------------")
 
@@ -125,8 +125,9 @@ def generate_graph_quiz(
         return [{"question": "No data found.", "options": ["N/A"], "correct_index": 0}]
 
     # ── Phase 1: Generation (Llama 3.2) ───────────────────────────────
-    stop_ollama_model("deepseek-r1:8b") # Free VRAM for Llama
-    _emit(status_callback, "🧠 Phase 1: Generating Bloom-Balanced Quiz…", 0.30)
+    _emit(status_callback, "📟 Optimizing VRAM for Llama 3.2...", 0.20)
+    stop_ollama_model("deepseek-r1:1.5b") # Free VRAM for Llama
+    _emit(status_callback, "🧠 Phase 1: Generating Bloom-Balanced Quiz…", 0.35)
     
     bloom_distribution = ""
     if n >= 6:
@@ -248,8 +249,9 @@ def generate_essay_questions(
     if not context: return []
 
     # ── Phase 1: Generation (Llama 3.2) ───────────────────────────────
-    stop_ollama_model("deepseek-r1:8b")
-    _emit(status_callback, "✍️ Drafting high-reasoning prompts…", 0.40)
+    _emit(status_callback, "📟 Optimizing VRAM for Llama 3.2...", 0.25)
+    stop_ollama_model("deepseek-r1:1.5b")
+    _emit(status_callback, "✍️ Drafting high-reasoning prompts…", 0.45)
     
     gen_prompt = f"""Using this context:
 {context}
@@ -299,7 +301,7 @@ def evaluate_essay_response(llm, question_obj: dict, student_text: str) -> dict:
     # Essay evaluation is usually fine with Llama 3.2 or can use DeepSeek if needed.
     # We'll use the provided 'llm' (default Llama 3.2) for speed here.
     from engine.vram_util import stop_ollama_model
-    stop_ollama_model("deepseek-r1:8b") # Ensure Llama has VRAM
+    stop_ollama_model("deepseek-r1:1.5b") # Ensure Llama has VRAM
     
     prompt = f"""GRADE the student's essay answer.
 QUESTION: {question_obj['question']}
