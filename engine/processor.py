@@ -201,8 +201,8 @@ def generate_cypher_queries(extraction: Dict[str, Any], doc_id: str, lesson_name
     
     # Process Entities
     for ent in extraction.get("entities", []):
-        name = ent.get("name", "").replace("'", "\\'")
-        etype = ent.get("type", "Concept").replace(" ", "_")
+        name = (ent.get("name") or "").replace("'", "\\'")
+        etype = (ent.get("type") or "Concept").replace(" ", "_")
         
         # New: Support both 'properties' and 'description'
         desc = ent.get("description", "")
@@ -216,9 +216,9 @@ def generate_cypher_queries(extraction: Dict[str, Any], doc_id: str, lesson_name
 
     # Process Relationships
     for rel in extraction.get("relationships", []):
-        src = rel.get("source", "").replace("'", "\\'")
-        tgt = rel.get("target", "").replace("'", "\\'")
-        rtype = rel.get("relation", "RELATED_TO").upper().replace(" ", "_").replace("-", "_")
+        src = (rel.get("source") or "").replace("'", "\\'")
+        tgt = (rel.get("target") or "").replace("'", "\\'")
+        rtype = (rel.get("relation") or "RELATED_TO").upper().replace(" ", "_").replace("-", "_")
         
         if src and tgt:
             # We want to ensure nodes exist before relating them, though MERGE above handles entities
