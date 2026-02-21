@@ -31,7 +31,9 @@ Track mastery across cognitive dimensions (Remembering, Understanding, Applying,
 | :--- | :--- |
 | **Streamlit** | Frontend UI & Interactive Dashboard |
 | **LangChain** | LLM Orchestration & RAG Pipeline |
-| **Ollama** | Local Inference (DeepSeek-R1 & Llama 3.2) |
+| **Ollama** | Local Inference Engine |
+| **DeepSeek-R1** | Extractor & Critic (High Reasoning) |
+| **Llama 3.2** | Generator & Essay Grader (Logic & Reasoning) |
 | **Neo4j** | Graph Database (Relational Memory) |
 | **Plotly** | Performance Analytics & Visualization |
 
@@ -104,7 +106,7 @@ flowchart TD
         SCHEMA_VAL --> STOP_DS["Stop DeepSeek (Release VRAM)"]
         STOP_DS --> RETRIEVAL["Graph Context Retrieval"]
         RETRIEVAL --> QUIZ_GEN[/"Llama 3.2 (Generator)"/]
-        QUIZ_GEN --> QUIZ_CRITIC[/"Llama 3.2 (Critic)"/]
+        QUIZ_GEN --> QUIZ_CRITIC[/"DeepSeek-R1 (Critic)"/]
     end
 
     %% 5. UI Stage
