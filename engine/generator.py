@@ -115,10 +115,8 @@ def generate_graph_quiz(
 ) -> list[dict]:
     store = QuizGraphStore()
     critic_llm = kwargs.get("critic_llm") or llm
-
     from engine.vram_util import stop_ollama_model
-    stop_ollama_model("deepseek-r1:8b") # Clear VRAM for Llama 3.2
-    
+
     _emit(status_callback, "🔍 Step 7 — Retrieving context…", 0.10)
     context, high_value = _retrieve_graph_context(store, lesson_name)
     print(f"--- RETRIEVED CONTEXT ---\n{context}\n------------------------")
@@ -126,11 +124,26 @@ def generate_graph_quiz(
     if not context:
         return [{"question": "No data found.", "options": ["N/A"], "correct_index": 0}]
 
-    # ── Phase 1: Generation ───────────────────────────────────────────
-    _emit(status_callback, "🧠 Phase 1: Generating Initial Quiz…", 0.30)
-    gen_prompt = f"""Use the provided context to generate a {n}-question MCQ quiz based on Bloom's Taxonomy.
+    # ── Phase 1: Generation (Llama 3.2) ───────────────────────────────
+    stop_ollama_model("deepseek-r1:8b") # Free VRAM for Llama
+    _emit(status_callback, "🧠 Phase 1: Generating Bloom-Balanced Quiz…", 0.30)
+    
+    bloom_distribution = ""
+    if n >= 6:
+        bloom_distribution = "MANDATORY: Generate exactly ONE question for each of the 6 levels: Remember, Understand, Apply, Analyze, Evaluate, Create."
+    
+    gen_prompt = f"""Use the provided context to generate a {n}-question MCQ quiz.
+{bloom_distribution}
 
-Bloom's Levels to use: Knowledge, Comprehension, Application, Analysis, Synthesis, Evaluation.
+Bloom's Taxonomy Levels:
+- Remember: Recall facts and basic concepts.
+- Understand: Explain ideas or concepts.
+- Apply: Use information in new situations.
+- Analyze: Draw connections among ideas.
+- Evaluate: Justify a stand or decision.
+- Create: Produce original work/hypotheses.
+
+STRICT UNIQUENESS: For quizzes with 6 or fewer questions, EVERY question MUST have a UNIQUE Bloom's level. Do NOT reuse a level.
 
 CONTEXT:
 {context}
@@ -138,15 +151,15 @@ CONTEXT:
 STRICT RULES:
 1. Each question must have EXACTLY 4 options.
 2. Only one option must be correct.
-3. Map each question to a Bloom's Taxonomy level.
-4. Return ONLY a JSON array of objects.
+3. Map each question to a level.
+4. Return ONLY a JSON array.
 
 FORMAT:
 {{
   "question": "...",
-  "options": ["A", "B", "C", "D"],
+  "options": ["...", "...", "...", "..."],
   "correct_index": 0,
-  "bloom_level": "Analysis",
+  "bloom_level": "Analyze",
   "source_fact": "..."
 }}
 """
@@ -159,14 +172,19 @@ FORMAT:
         print(f"⚠️ Generation failed: {e}")
         return []
 
-    # ── Phase 2: Critic Review ────────────────────────────────────────
-    _emit(status_callback, "⚖️ Phase 2: Critic Review & Refinement…", 0.60)
-    critic_prompt = f"""Review and correct the following quiz. 
+    # ── Phase 2: Critic Review (DeepSeek-R1) ──────────────────────────
+    _emit(status_callback, "⚖️ Phase 2: Deep-Critique with DeepSeek-R1…", 0.60)
+    
+    # SWAP MODELS
+    stop_ollama_model("llama3.2:latest") # Free VRAM for DeepSeek
+    
+    critic_prompt = f"""[INST] Review and correct the following quiz. 
 ENSURE:
 1. Exactly 4 options per question.
 2. The 'correct_index' is mathematically correct (0 to 3).
 3. The questions are grounded in the context provided.
-4. Each question correctly reflects its assigned Bloom's Level.
+4. Each question correctly reflects one of the Revised Bloom's Levels: Remember, Understand, Apply, Analyze, Evaluate, Create.
+5. STRICT RULE: For quizzes with 6 or fewer questions, EVERY question MUST have a UNIQUE 'bloom_level'. Correct any duplicates.
 
 CONTEXT:
 {context}
@@ -175,7 +193,7 @@ QUIZ DATA:
 {json.dumps(initial_quiz)}
 
 Return ONLY the corrected JSON array.
-"""
+[/INST]"""
     try:
         raw_refined = critic_llm.invoke(critic_prompt).content
         print(f"--- QUIZ RAW RESPONSE ---\n{raw_refined}\n------------------------")
@@ -214,23 +232,84 @@ def _parse_json(text: str, is_list: bool = True):
     return [] if is_list else {}
 
 
-def generate_essay_questions(llm, lesson_name: str, n: int, **kwargs) -> list[dict]:
+def generate_essay_questions(
+    llm,                 # Primary (Llama 3.2)
+    lesson_name: str, 
+    n: int, 
+    status_callback: Callable | None = None,
+    **kwargs
+) -> list[dict]:
     store = QuizGraphStore()
+    critic_llm = kwargs.get("critic_llm") or llm
+    from engine.vram_util import stop_ollama_model
+
+    _emit(status_callback, "🔍 Retrieving graph context…", 0.10)
     context, _ = _retrieve_graph_context(store, lesson_name)
     if not context: return []
+
+    # ── Phase 1: Generation (Llama 3.2) ───────────────────────────────
+    stop_ollama_model("deepseek-r1:8b")
+    _emit(status_callback, "✍️ Drafting high-reasoning prompts…", 0.40)
     
-    prompt = f"Using this context:\n{context}\n\nGenerate {n} essay questions. Return JSON list."
+    gen_prompt = f"""Using this context:
+{context}
+
+Generate {n} complex essay questions based on the Revised Bloom's Taxonomy.
+
+Bloom's Levels to cover (if multiple questions): Remember, Understand, Apply, Analyze, Evaluate, Create.
+
+Return ONLY a JSON array of objects with: 
+"question", 
+"difficulty" (Easy/Med/Hard), 
+"bloom_level" (one of the 6 levels),
+"expected_concepts" (list).
+"""
     try:
-        raw = llm.invoke(prompt).content
-        return _parse_json(raw, is_list=True)
+        raw_gen = llm.invoke(gen_prompt).content
+        initial_essays = _parse_json(raw_gen)
+        if not initial_essays: return []
+    except: return []
+
+    # ── Phase 2: Deep-Critique (DeepSeek-R1) ──────────────────────────
+    _emit(status_callback, "⚖️ Deep-Reasoning Review…", 0.70)
+    stop_ollama_model("llama3.2:latest")
+    
+    critic_prompt = f"""[INST] Review these essay questions for depth and alignment with the Revised Bloom's Taxonomy.
+CONTEXT:
+{context}
+
+QUESTIONS:
+{json.dumps(initial_essays)}
+
+Refine them to ensure:
+1. The 'bloom_level' accurately reflects the cognitive challenge (Remember -> Create).
+2. The questions are mathematically and factually grounded in the context.
+3. They require significant synthesis for higher levels (Analyze/Evaluate/Create).
+
+Return ONLY the corrected JSON array.
+[/INST]"""
+    try:
+        raw_refined = critic_llm.invoke(critic_prompt).content
+        return _parse_json(raw_refined) or initial_essays
     except:
-        return []
+        return initial_essays
 
 
 def evaluate_essay_response(llm, question_obj: dict, student_text: str) -> dict:
-    prompt = f"QUESTION: {question_obj['question']}\nANSWER: {student_text}\n\nGrade 0-10. Return JSON: {{'score': 0, 'feedback': ''}}"
+    # Essay evaluation is usually fine with Llama 3.2 or can use DeepSeek if needed.
+    # We'll use the provided 'llm' (default Llama 3.2) for speed here.
+    from engine.vram_util import stop_ollama_model
+    stop_ollama_model("deepseek-r1:8b") # Ensure Llama has VRAM
+    
+    prompt = f"""GRADE the student's essay answer.
+QUESTION: {question_obj['question']}
+STUDENT ANSWER: {student_text}
+
+Provide a score (0-10) and constructive feedback based on factual accuracy.
+Return ONLY JSON: {{"score": 8, "feedback": "..."}}
+"""
     try:
         raw = llm.invoke(prompt).content
-        return _parse_json(raw, is_list=False) or {"score": 0, "feedback": "Parse error."}
+        return _parse_json(raw, is_list=False) or {"score": 0, "feedback": "Grading failed."}
     except:
-        return {"score": 0, "feedback": "Error."}
+        return {"score": 0, "feedback": "Evaluation error."}

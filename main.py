@@ -5,13 +5,14 @@ from engine.processor import process_pdf_to_graph
 from engine.generator import generate_graph_quiz, generate_essay_questions, evaluate_essay_response
 from engine.graph_store import QuizGraphStore
 from langchain_ollama import ChatOllama
+import plotly.express as px
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # ── Page Config ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="GraphRAG Tutor 3.0 (Fast)",
+    page_title="GraphRAG Edu-Suite (DeepSeek + Llama)",
     layout="wide",
     page_icon="🧠",
 )
@@ -50,7 +51,7 @@ for key, val in {
 # ── Sidebar: Knowledge Management ────────────────────────────────────────────
 with st.sidebar:
     st.header("📂 Knowledge Ingestion")
-    st.caption("Phase 1: Fast Ingestion Pipeline")
+    st.caption("DeepSeek-R1 High-Quality Extraction")
     
     uploaded = st.file_uploader(
         "Upload Lesson PDFs", type="pdf", accept_multiple_files=True
@@ -79,6 +80,12 @@ with st.sidebar:
 
                 cb = make_callback(status_text, progress_bar)
 
+                # Skip existing lessons
+                existing_lessons = store.get_lessons()
+                if lesson_name in existing_lessons:
+                    st.info(f"⏭️ Skipping '{lesson_name}': Already in Knowledge Graph.")
+                    continue
+
                 try:
                     # Uses DeepSeek-R1 (8B) for high-quality extraction
                     process_pdf_to_graph(file, extraction_llm, status_callback=cb)
@@ -99,11 +106,11 @@ with st.sidebar:
 
 
 # ── Main UI ───────────────────────────────────────────────────────────────────
-st.title("🎓 Advanced GraphRAG Edu-Suite")
-st.markdown("#### *Llama 3.2 Intelligence + Neo4j Memory (Fast Mode)*")
+st.title("🎓 GraphRAG Edu-Suite")
+st.markdown("#### *DeepSeek-R1 Thinking + Llama 3.2 Reasoning + Neo4j Memory*")
 
-tab_mcq, tab_essay, tab_insights = st.tabs(
-    ["🎯 Multi-Choice Quiz", "✍️ Essay Lab", "📊 Graph Insights"]
+tab_mcq, tab_essay, tab_insights, tab_analytics = st.tabs(
+    ["🎯 Multi-Choice Quiz", "✍️ Essay Lab", "📊 Graph Insights", "📈 Analytics"]
 )
 
 
@@ -120,9 +127,10 @@ with tab_mcq:
         if st.button("✨ Generate Quiz", use_container_width=True):
             with st.status("🧠 Orchestrating Generation Loop...", expanded=True) as status:
                 st.write("🔍 Retrieving graph context...")
-                # Pass quiz_llm for generation and critic
+                # Ultimate Dual-Model Loop: Llama for Gen, DeepSeek for Critic
                 quiz = generate_graph_quiz(
-                    quiz_llm, selected_lesson, num_q
+                    quiz_llm, selected_lesson, num_q, 
+                    critic_llm=extraction_llm
                 )
                 
                 if quiz:
@@ -176,9 +184,50 @@ with tab_mcq:
 
 # ── TAB: ESSAY ────────────────────────────────────────────────────────────────
 with tab_essay:
-    st.info("The Essay Lab is powered by Llama 3.2 synthesis.")
-    # (Essay logic implemented via generator)
-    pass
+    st.subheader("✍️ The Essay Lab")
+    st.caption("Deep-Reasoning prompts by DeepSeek-R1 • Grading by Llama 3.2")
+    
+    existing_lessons = store.get_lessons()
+    if not existing_lessons:
+        st.info("👈 Build your knowledge graph first.")
+    else:
+        col1, col2 = st.columns([2, 1])
+        essay_lesson = col1.selectbox("Choose a Theme", existing_lessons, key="essay_sel")
+        essay_num = col2.slider("Question Count", 1, 5, 2, key="essay_num")
+        
+        if st.button("🎭 Generate Essay Prompts", use_container_width=True):
+            with st.status("🏗️ Synthesizing Deep Questions...", expanded=True) as status:
+                essays = generate_essay_questions(
+                    quiz_llm, essay_lesson, essay_num, 
+                    critic_llm=extraction_llm
+                )
+                if essays:
+                    st.session_state.essays = essays
+                    st.session_state.essay_results = {}
+                    status.update(label="✅ Prompts Ready!", state="complete")
+                    st.rerun()
+        
+        if st.session_state.essays:
+            for i, essay in enumerate(st.session_state.essays):
+                b_level = essay.get("bloom_level", "Synthesis")
+                diff = essay.get("difficulty", "Challenge")
+                
+                with st.expander(f"Prompt {i+1}: {b_level} ({diff})", expanded=True):
+                    st.write(f"**{essay['question']}**")
+                    concepts = ", ".join(essay.get("expected_concepts", []))
+                    st.caption(f"Focus on: {concepts}")
+                    
+                    answer = st.text_area("Your response:", key=f"ans_{i}", height=200)
+                    
+                    if st.button(f"🚀 Submit Answer {i+1}", key=f"sub_{i}"):
+                        with st.spinner("⚖️ AI Grade Auditor in progress..."):
+                            result = evaluate_essay_response(quiz_llm, essay, answer)
+                            st.session_state.essay_results[i] = result
+                    
+                    if i in st.session_state.essay_results:
+                        res = st.session_state.essay_results[i]
+                        st.success(f"**Score: {res['score']}/10**")
+                        st.info(f"**Feedback:** {res['feedback']}")
 
 
 # ── TAB: INSIGHTS ─────────────────────────────────────────────────────────────
@@ -195,3 +244,55 @@ with tab_insights:
     rows = store.query("MATCH (a:Entity)-[r]->(b:Entity) RETURN a.id as Source, type(r) as Relation, b.id as Target LIMIT 20")
     if rows:
         st.table(pd.DataFrame(rows))
+
+
+# ── TAB: ANALYTICS ────────────────────────────────────────────────────────────
+with tab_analytics:
+    st.subheader("📈 Performance Analytics")
+    st.caption("Factual Mastery across Cognitive Dimensions")
+    
+    if not st.session_state.quiz_submitted or not st.session_state.quiz:
+        st.info("Complete and submit a quiz to see your performance profile.")
+    else:
+        # Prepare data for Plotly
+        data = []
+        for i, q in enumerate(st.session_state.quiz):
+            level = q.get("bloom_level", "Synthesis")
+            is_correct = st.session_state.responses.get(i) == q.get("correct_index")
+            data.append({"Level": level, "Correct": 1 if is_correct else 0, "Total": 1})
+            
+        df = pd.DataFrame(data).groupby("Level").sum().reset_index()
+        df["Accuracy (%)"] = (df["Correct"] / df["Total"] * 100).round(1)
+        
+        # Sort by Revised Bloom's Order
+        bloom_order = ["Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"]
+        df["Level"] = pd.Categorical(df["Level"], categories=bloom_order, ordered=True)
+        df = df.sort_values("Level")
+
+        # 1. Bar Chart: Accuracy by Level
+        fig_bar = px.bar(
+            df, x="Level", y="Accuracy (%)", 
+            color="Accuracy (%)", 
+            color_continuous_scale="RdYlGn",
+            range_y=[0, 100],
+            title="Mastery by Bloom's Level"
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+        
+        # 2. Radar Chart: Cognitive Profile
+        if len(df) >= 3:
+            fig_radar = px.line_polar(
+                df, r="Accuracy (%)", theta="Level", 
+                line_close=True,
+                title="Cognitive Mastery Profile"
+            )
+            fig_radar.update_traces(fill='toself')
+            st.plotly_chart(fig_radar, use_container_width=True)
+        
+        st.write("### 💡 Learning Recommendations")
+        weak_levels = df[df["Accuracy (%)"] < 70]["Level"].tolist()
+        if not weak_levels:
+            st.success("🌟 Excellent! You've mastered all cognitive levels for this lesson.")
+        else:
+            levels_str = ", ".join([str(l) for l in weak_levels])
+            st.warning(f"Focus on improving your **{levels_str}** skills. Try another quiz with more questions in these areas.")
