@@ -31,11 +31,11 @@ def _emit(callback: Callable | None, msg: str, pct: float = 0.0):
 
 
 def _extract_json(text: str) -> Any:
-    """Robust JSON extraction, handling DeepSeek <think> tags."""
+    """Robust JSON extraction, handling DeepSeek <think> tags and malformed output."""
     # Remove <think>...</think> blocks if present
     text = re.sub(r'<think>[\s\S]*?</think>', '', text).strip()
     
-    # 1. Try markdown fences
+    # 1. Try markdown fences (most reliable)
     fenced = re.search(r'```(?:json)?\s*([\s\S]*?)```', text, re.IGNORECASE)
     if fenced:
         try:
@@ -43,22 +43,27 @@ def _extract_json(text: str) -> Any:
         except json.JSONDecodeError:
             pass
     
-    # ... (rest of the greedy logic remains same)
-
-    # 2. Try the largest valid JSON block in the string
+    # 2. Extract anything between [ ] or { } greedily
+    # First, try to find a list [] (useful for chunking results)
     arrays = re.findall(r'\[[\s\S]*\]', text)
     if arrays:
         for candidate in sorted(arrays, key=len, reverse=True):
             try:
-                return json.loads(candidate)
+                # Clean up any potential markdown or trailing text inside the candidate
+                cleaned = re.sub(r'^.*?\[', '[', candidate, flags=re.DOTALL)
+                cleaned = re.sub(r'\].*?$', ']', cleaned, flags=re.DOTALL)
+                return json.loads(cleaned)
             except json.JSONDecodeError:
                 continue
 
+    # Then try to find an object {}
     objects = re.findall(r'\{[\s\S]*\}', text)
     if objects:
         for candidate in sorted(objects, key=len, reverse=True):
             try:
-                return json.loads(candidate)
+                cleaned = re.sub(r'^.*?\{', '{', candidate, flags=re.DOTALL)
+                cleaned = re.sub(r'\}.*?$', '}', cleaned, flags=re.DOTALL)
+                return json.loads(cleaned)
             except json.JSONDecodeError:
                 continue
     
@@ -80,6 +85,61 @@ def extract_text_from_pdf(pdf_file) -> str:
     return text.strip()
 
 
+def perform_thematic_chunking(llm, text: str, target_size: int = 4000) -> List[str]:
+    """Uses DeepSeek-R1 to identify logical/thematic shifts for semantic chunking."""
+    # First, do a rough split into segments of ~8000 chars to avoid overwhelming the context
+    paragraphs = re.split(r'\n\s*\n', text)
+    segments = []
+    curr = ""
+    for p in paragraphs:
+        if len(curr) + len(p) > 8000 and curr:
+            segments.append(curr)
+            curr = p
+        else:
+            curr += "\n\n" + p if curr else p
+    if curr: segments.append(curr)
+
+    final_chunks = []
+    print(f"🧩 Starting semantic chunking on {len(text)} characters...")
+    for i, seg in enumerate(segments):
+        prompt = f"""Analyze the text below and identify logical 'Thematic Shifts'. 
+A thematic shift is where the topic transitions (e.g., from 'Introduction' to 'Mechanism' or 'Examples').
+
+TEXT:
+{seg}
+
+TASK:
+1. Identify the character index or unique short phrases where the topic changes.
+2. Return the text split into semantically coherent chunks based on these shifts.
+3. Each chunk should ideally be between 2000-4000 characters.
+4. Return ONLY a JSON list of strings representing the chunks.
+
+JSON FORMAT:
+[
+  "chunk 1 text...",
+  "chunk 2 text..."
+]
+"""
+        try:
+            response = llm.invoke(prompt).content
+            chunks = _extract_json(response)
+            if chunks and isinstance(chunks, list):
+                print(f"  ✅ Segment {i+1}: Identified {len(chunks)} thematic chunks.")
+                for j, c in enumerate(chunks):
+                    snippet = str(c)[:50].replace('\n', ' ')
+                    print(f"     Sub-chunk {j+1}: {snippet}...")
+                final_chunks.extend([str(c) for c in chunks])
+            else:
+                print(f"  ⚠️ Segment {i+1}: AI failed to return valid JSON chunks. Falling back to length-based split.")
+                final_chunks.extend(perform_normal_chunking(seg, target_size))
+        except Exception as e:
+            print(f"  ❌ Segment {i+1} Error: {e}")
+            final_chunks.extend(perform_normal_chunking(seg, target_size))
+    
+    print(f"🎯 Total semantic chunks created: {len(final_chunks)}")
+    return final_chunks
+
+
 def perform_normal_chunking(text: str, target_size: int = 3500) -> List[str]:
     """Balanced chunk size for hardware with 4GB VRAM (Fast processing)."""
     paragraphs = re.split(r'\n\s*\n', text)
@@ -97,35 +157,40 @@ def perform_normal_chunking(text: str, target_size: int = 3500) -> List[str]:
 
 
 def extract_graph_data(llm, chunk: str) -> Dict[str, Any]:
-    # High-Yield Extraction Prompt (Optimized for DeepSeek & Llama 3.2)
-    prompt = f"""Use the provided text to identify the most important concepts and their relationships for a Knowledge Graph.
+    """High-Precision Extraction for Neo4j Knowledge Graphs."""
+    prompt = f"""You are an expert knowledge engineer. Extract key concepts and their semantic relationships from the provided text for a biological/educational Knowledge Graph.
 
 TEXT:
 {chunk}
 
 TASK:
-1. Extract 5-10 Entities (Concepts, Facts, Definitions).
-2. Extract Relationships between these entities.
-3. Return ONLY a JSON object.
+1. **Identify Entities**: Key terms, definitions, components, or facts. 
+   - Use canonical names (singular, consistent casing).
+   - Assign a specific 'type' (e.g., 'Organelle', 'Process', 'Component', 'Definition').
+   - Include a 'description' or 'properties' for each.
+2. **Identify Relationships**: How these entities interact.
+   - Use meaningful relation types (e.g., 'PART_OF', 'INHIBITS', 'RESPONSIBLE_FOR', 'LOCATED_IN').
+   - Ensure 'source' and 'target' match the entity 'name' exactly.
 
-FORMAT:
+OUTPUT FORMAT (STRICT JSON):
 {{
   "entities": [
-    {{"name": "...", "type": "...", "properties": ["..."]}}
+    {{"name": "Mitochondria", "type": "Organelle", "description": "Produces ATP through cellular respiration"}}
   ],
   "relationships": [
-    {{"source": "...", "relation": "...", "target": "..."}}
+    {{"source": "Mitochondria", "relation": "PRODUCES", "target": "ATP"}}
   ]
 }}
 """
     try:
         response = llm.invoke(prompt).content
-        print(f"--- LLM RAW RESPONSE ---\n{response}\n------------------------")
+        # Log response for debugging if needed (keeping it quiet in prod)
+        # print(f"--- EXTRACTION RAW ---\n{response}\n----------------------")
         data = _extract_json(response)
-        if data:
+        if data and ("entities" in data or "relationships" in data):
             return data
     except Exception as e:
-        print(f"⚠️ LLM Error: {e}")
+        print(f"⚠️ Extraction Error: {e}")
     
     return {"entities": [], "relationships": []}
 
@@ -138,20 +203,30 @@ def generate_cypher_queries(extraction: Dict[str, Any], doc_id: str, lesson_name
     for ent in extraction.get("entities", []):
         name = ent.get("name", "").replace("'", "\\'")
         etype = ent.get("type", "Concept").replace(" ", "_")
-        props = json.dumps(ent.get("properties", []))
+        
+        # New: Support both 'properties' and 'description'
+        desc = ent.get("description", "")
+        props = ent.get("properties", [])
+        if desc and not props: props = [desc]
+        props_json = json.dumps(props)
         
         # Create Entity and link to Document
-        queries.append(f"MERGE (e:Entity {{id: '{name}'}}) ON CREATE SET e.type='{etype}', e.properties={props}")
+        queries.append(f"MERGE (e:Entity {{id: '{name}'}}) ON CREATE SET e.type='{etype}', e.properties={props_json}")
         queries.append(f"MATCH (e:Entity {{id: '{name}'}}), (d:Document {{id: '{doc_id}'}}) MERGE (e)-[:MENTIONED_IN]->(d)")
 
     # Process Relationships
     for rel in extraction.get("relationships", []):
         src = rel.get("source", "").replace("'", "\\'")
         tgt = rel.get("target", "").replace("'", "\\'")
-        rtype = rel.get("relation", "RELATED_TO").upper().replace(" ", "_")
+        rtype = rel.get("relation", "RELATED_TO").upper().replace(" ", "_").replace("-", "_")
         
         if src and tgt:
-            queries.append(f"MATCH (a:Entity {{id: '{src}'}}), (b:Entity {{id: '{tgt}'}}) MERGE (a)-[:{rtype}]->(b)")
+            # We want to ensure nodes exist before relating them, though MERGE above handles entities
+            # Using MERGE on relationship avoids duplicates
+            queries.append(f"""
+            MATCH (a:Entity {{id: '{src}'}}), (b:Entity {{id: '{tgt}'}})
+            MERGE (a)-[:{rtype}]->(b)
+            """)
             
     return queries
 
@@ -188,8 +263,13 @@ def process_pdf_to_graph(
         _emit(status_callback, "❌ Error: PDF extracted text is empty.", 0.15)
         raise ValueError("The PDF contains no machine-readable text. It might be a scan or images-only.")
 
-    _emit(status_callback, "✂️ Batching context…", 0.20)
-    chunks = perform_normal_chunking(full_text)
+    _emit(status_callback, "✂️ Semantic Thematic Chunking…", 0.20)
+    # Use thematic chunking with DeepSeek-R1
+    chunks = perform_thematic_chunking(llm, full_text)
+    
+    if not chunks:
+        _emit(status_callback, "⚠️ Semantic chunking failed, falling back to normal split.", 0.25)
+        chunks = perform_normal_chunking(full_text)
     
     _emit(status_callback, f"👁️ Extracting data from {len(chunks)} batches…", 0.30)
     all_data = {"entities": [], "relationships": []}
