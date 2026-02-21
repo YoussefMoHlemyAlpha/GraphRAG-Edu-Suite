@@ -1,189 +1,236 @@
+"""
+generator.py — Phase 3: Retrieval & Reasoning (Simplified Llama 3.2)
+
+🧠 Phase 3
+    Step 7: Contextual Retrieval (Refined BFS)
+    Step 8: Prompt Augmentation (Llama 3.2:latest)
+    Step 9: Logic & Reasoning (Llama 3.2:latest)
+    Step 9.5: Simple Critic loop (Optional/Integrated)
+    Step 10: Final Output
+"""
+
+from __future__ import annotations
 import json
-from langchain_core.prompts import PromptTemplate
-from engine.graph_store import QuizGraphStore
 import re
-def generate_graph_quiz(llm, lesson_name, n):
-    store = QuizGraphStore()
+from typing import Callable, List, Dict, Any
+
+from engine.graph_store import QuizGraphStore
+
+
+# ─────────────────────────────────────────────
+# Utilities
+# ─────────────────────────────────────────────
+
+def _emit(callback: Callable | None, msg: str, pct: float = 0.0):
+    if callback:
+        callback(msg, pct)
+    else:
+        print(msg)
+
+
+def _parse_json(text: str, is_list: bool = True):
+    """Robust extraction of the outermost JSON block."""
+    start_char = '[' if is_list else '{'
+    end_char = ']' if is_list else '}'
     
-    # Improved query: Returns human-readable facts
-    context_query = """
-    MATCH (l:Lesson {name: $lesson})<-[:PART_OF]-(n)
-    OPTIONAL MATCH (n)-[r]->(m)
-    RETURN 
-        CASE 
-            WHEN r IS NULL THEN "Topic: " + n.id
-            ELSE "Fact: " + n.id + " " + toLower(replace(type(r), '_', ' ')) + " " + m.id 
-        END AS fact
-    LIMIT 100
-    """
-    results = store.query(context_query, {"lesson": lesson_name})
-    
-    # If the graph is empty, we must stop here or it will hallucinate!
-    if not results:
-        print(f"⚠️ No nodes found for lesson: {lesson_name}")
-        return [{"question": "Error: Knowledge Graph is empty for this lesson. Please rebuild the graph.", "options": ["N/A"], "correct_index": 0, "bloom_level": "N/A"}]
-
-    context = "\n".join([r['fact'] for r in results if r['fact']])
-    print(f"📊 Fact context size: {len(context)} characters")
-
-    # Step 1: Strict Generation
-    gen_prompt = f"""
-    ### ROLE: Educational Content Creator
-    ### DATA SOURCE (STRICTLY USE ONLY THIS):
-    {context}
-
-    ### MANDATORY INSTRUCTIONS:
-    1. ZERO EXTERNAL KNOWLEDGE: Do NOT use any information from your training data. 
-    2. NO GENERAL KNOWLEDGE: Do NOT ask about Paris, France, Einstein, Mountains, or Planets unless they are EXPLICITLY mentioned in the DATA SOURCE above.
-    3. TOPIC FOCUS: If the DATA SOURCE is about "AI" or "Reasoning", every single question must be about "AI" or "Reasoning".
-    4. MCQ STRUCTURE: 
-       - Exactly 4 options (array of strings).
-       - 1 Correct Answer (verifiable from DATA).
-       - 3 Distractors (plausible but wrong).
-    5. QUANTITY: Generate exactly {n} questions.
-    6. DIVERSITY: Cover Bloom's levels: Remember, Understand, Apply, Analyze, Evaluate, Create.
-    7. FORMAT: Return only the JSON array.
-
-    ### JSON FORMAT:
-    [
-      {{
-        "question": "Question about a fact from the data?",
-        "options": ["Correct string", "Incorrect 1", "Incorrect 2", "Incorrect 3"],
-        "correct_index": 0,
-        "bloom_level": "Understand"
-      }}
-    ]
-    """
-    
-    try:
-        raw_quiz = llm.invoke(gen_prompt).content
-    except Exception as e:
-        print(f"❌ LLM Generation Error: {str(e)}")
-        return [{"question": f"LLM Error: {str(e)}. Please check if Ollama is running.", "options": ["N/A"], "correct_index": 0, "bloom_level": "N/A"}]
-
-    # Step 2: Verification
-    critique_prompt = f"""
-    ### ROLE: Accuracy Auditor
-    ### TASK: Scan the generated quiz and remove/fix any errors.
-
-    --- ORIGINAL QUIZ ---
-    {raw_quiz}
-
-    --- REFERENCE DATA ---
-    {context}
-
-    --- AUDIT CHECKLIST ---
-    1. NO HALLUCINATIONS: If a question is about the "Auditor", "Designer", or "Instructions", DELETE it and replace it with a content-based question.
-    2. STRUCTURE: Ensure exactly {n} questions exist.
-    3. FORMAT: Options MUST be plain strings. 
-    4. ACCURACY: The answer must match the REFERENCE DATA.
-
-    ### OUTPUT: Return ONLY the final JSON array.
-    """
-    verified_quiz = llm.invoke(critique_prompt).content
-    
-    try:
-        data = json.loads(verified_quiz)
-        return data if data else [{"question": "Error: LLM was unable to generate questions from this context. Try a different lesson.", "options": ["N/A"], "correct_index": 0, "bloom_level": "N/A"}]
-    except:
-        # Fallback: find the JSON array if LLM adds chatter
-        import re
-        match = re.search(r'\[.*\]', verified_quiz, re.DOTALL)
-        if match:
-            try:
-                data = json.loads(match.group())
-                return data if data else [{"question": "Error: LLM generated an empty quiz.", "options": ["N/A"], "correct_index": 0, "bloom_level": "N/A"}]
-            except:
-                pass
-        
-        print(f"❌ JSON Parsing Failed. Raw Response: {verified_quiz}")
-        return [{"question": "Error: Failed to parse quiz data. Please try again.", "options": ["N/A"], "correct_index": 0, "bloom_level": "N/A"}]
-
-
-
-
-
-def generate_essay_questions(llm, lesson_name, n):
-    store = QuizGraphStore()
-    
-    # Retrieve structural relationships (Context)
-    res = store.query("""
-        MATCH (l:Lesson {name: $lesson})<-[:PART_OF]-(n)-[r]->(m)
-        RETURN n.id + ' ' + type(r) + ' ' + m.id AS fact LIMIT 50
-    """, {"lesson": lesson_name})
-    
-    context = "\n".join([r['fact'] for r in res if r['fact'] is not None])
-    
-    if not context:
-        return [{
-            "question": "Error: Knowledge Graph is empty. Please upload PDFs and build the graph first.",
-            "bloom_level": "N/A",
-            "key_concepts": [],
-            "rubric": []
-        }]
-
-    prompt = f"""
-    CONTEXT FROM GRAPH:
-    {context}
-
-    TASK: Generate {n} Essay Questions for a 'Supervised ML' course.
-    BLOOM LEVELS: Focus on 'Analyze', 'Evaluate', or 'Create'.
-    
-    REQUIREMENT: Each question must force the student to connect multiple facts from the context.
-    
-    RETURN ONLY A JSON ARRAY:
-    [
-      {{
-        "question": "The essay prompt...",
-        "bloom_level": "Analyze/Evaluate",
-        "key_concepts": ["concept1", "concept2"],
-        "rubric": ["Point 1 for grading", "Point 2 for grading"]
-      }}
-    ]
-    """
-    try:
-        raw_output = llm.invoke(prompt).content
-    except Exception as e:
-        import streamlit as st
-        st.error(f"LLM Error: {str(e)}")
-        return [{
-            "question": f"Error: {str(e)}",
-            "bloom_level": "N/A",
-            "key_concepts": [],
-            "rubric": []
-        }]
-    return parse_json_safely(raw_output)
-
-def evaluate_essay_response(llm, question_obj, student_text):
-    eval_prompt = f"""
-    QUESTION: {question_obj['question']}
-    RUBRIC: {question_obj['rubric']}
-    EXPECTED CONCEPTS: {question_obj['key_concepts']}
-    
-    STUDENT ANSWER: 
-    {student_text}
-    
-    TASK: Grade the essay based on the Rubric. Check if they correctly used the concepts.
-    RETURN ONLY JSON:
-    {{
-      "score": out of 10,
-      "feedback": "constructive advice",
-      "missed_entities": ["concept1", "concept2"]
-    }}
-    """
-    try:
-        raw_eval = llm.invoke(eval_prompt).content
-    except Exception as e:
-        return {"score": 0, "feedback": f"Evaluation Error: {str(e)}", "missed_entities": []}
-    return parse_json_safely(raw_eval, is_list=False)
-
-def parse_json_safely(input_text, is_list=True):
-    """The 'Regex' Logic to prevent crashes from LLM chatter"""
-    pattern = r'\[.*\]' if is_list else r'\{.*\}'
-    match = re.search(pattern, input_text, re.DOTALL)
-    if match:
+    # 1. Try markdown fences first
+    fenced = re.search(r'```(?:json)?\s*([\s\S]*?)```', text, re.IGNORECASE)
+    if fenced:
         try:
-            return json.loads(match.group())
-        except:
-            return [] if is_list else {}
+            return json.loads(fenced.group(1).strip())
+        except: pass
+
+    # 2. Greedy search for the outermost array/object
+    try:
+        start_idx = text.find(start_char)
+        end_idx = text.rfind(end_char)
+        if start_idx != -1 and end_idx != -1:
+            candidate = text[start_idx:end_idx+1]
+            return json.loads(candidate)
+    except:
+        pass
+        
     return [] if is_list else {}
+
+
+# ─────────────────────────────────────────────
+# Step 7 — Contextual Retrieval (BFS)
+# ─────────────────────────────────────────────
+
+def _retrieve_graph_context(store: QuizGraphStore, lesson_name: str) -> tuple[str, list[str]]:
+    query = """
+    MATCH (les:Lesson {name: $lesson})<-[:PART_OF]-(e:Entity)
+    OPTIONAL MATCH (e)-[r]->(related)
+    RETURN 
+        e.id AS entity, 
+        e.type AS type, 
+        e.properties AS props, 
+        type(r) AS relation, 
+        related.id AS target
+    LIMIT 500
+    """
+    rows = store.query(query, {"lesson": lesson_name})
+
+    if not rows:
+        return "", []
+
+    facts: list[str] = []
+    entity_degree: dict[str, int] = {}
+
+    for row in rows:
+        ent     = row.get("entity") or ""
+        etype   = row.get("type")   or ""
+        props   = row.get("props")  or ""
+        rel     = row.get("relation")
+        target  = row.get("target")
+
+        if not ent:
+            continue
+
+        entity_degree[ent] = entity_degree.get(ent, 0) + (1 if rel else 0)
+
+        if props:
+            facts.append(f"[{etype}] {ent}: {props}")
+        if rel and target:
+            facts.append(f"({ent})-[:{rel}]->({target})")
+
+    sorted_entities = sorted(entity_degree.items(), key=lambda x: x[1], reverse=True)
+    high_value      = [e for e, _ in sorted_entities[:10]]
+
+    unique_facts = list(dict.fromkeys(facts))
+    context_text = "\n".join(unique_facts)
+    return context_text, high_value
+
+
+# ─────────────────────────────────────────────
+# Pipelines
+# ─────────────────────────────────────────────
+
+def generate_graph_quiz(
+    llm,                 # Primary LLM (Llama 3.2)
+    lesson_name: str,
+    n: int,
+    status_callback: Callable | None = None,
+    **kwargs             # Optional critic_llm
+) -> list[dict]:
+    store = QuizGraphStore()
+    critic_llm = kwargs.get("critic_llm") or llm
+
+    from engine.vram_util import stop_ollama_model
+    stop_ollama_model("deepseek-r1:8b") # Clear VRAM for Llama 3.2
+    
+    _emit(status_callback, "🔍 Step 7 — Retrieving context…", 0.10)
+    context, high_value = _retrieve_graph_context(store, lesson_name)
+    print(f"--- RETRIEVED CONTEXT ---\n{context}\n------------------------")
+
+    if not context:
+        return [{"question": "No data found.", "options": ["N/A"], "correct_index": 0}]
+
+    # ── Phase 1: Generation ───────────────────────────────────────────
+    _emit(status_callback, "🧠 Phase 1: Generating Initial Quiz…", 0.30)
+    gen_prompt = f"""Use the provided context to generate a {n}-question MCQ quiz based on Bloom's Taxonomy.
+
+Bloom's Levels to use: Knowledge, Comprehension, Application, Analysis, Synthesis, Evaluation.
+
+CONTEXT:
+{context}
+
+STRICT RULES:
+1. Each question must have EXACTLY 4 options.
+2. Only one option must be correct.
+3. Map each question to a Bloom's Taxonomy level.
+4. Return ONLY a JSON array of objects.
+
+FORMAT:
+{{
+  "question": "...",
+  "options": ["A", "B", "C", "D"],
+  "correct_index": 0,
+  "bloom_level": "Analysis",
+  "source_fact": "..."
+}}
+"""
+    try:
+        raw_gen = llm.invoke(gen_prompt).content
+        initial_quiz = _parse_json(raw_gen)
+        if not initial_quiz:
+             return []
+    except Exception as e:
+        print(f"⚠️ Generation failed: {e}")
+        return []
+
+    # ── Phase 2: Critic Review ────────────────────────────────────────
+    _emit(status_callback, "⚖️ Phase 2: Critic Review & Refinement…", 0.60)
+    critic_prompt = f"""Review and correct the following quiz. 
+ENSURE:
+1. Exactly 4 options per question.
+2. The 'correct_index' is mathematically correct (0 to 3).
+3. The questions are grounded in the context provided.
+4. Each question correctly reflects its assigned Bloom's Level.
+
+CONTEXT:
+{context}
+
+QUIZ DATA:
+{json.dumps(initial_quiz)}
+
+Return ONLY the corrected JSON array.
+"""
+    try:
+        raw_refined = critic_llm.invoke(critic_prompt).content
+        print(f"--- QUIZ RAW RESPONSE ---\n{raw_refined}\n------------------------")
+        refined_quiz = _parse_json(raw_refined)
+        
+        # Final validation and cleanup
+        final_quiz = []
+        for q in (refined_quiz or initial_quiz):
+            if isinstance(q, dict) and "options" in q and len(q["options"]) == 4:
+                # Force index sanity
+                idx = q.get("correct_index", 0)
+                if not isinstance(idx, int) or idx < 0 or idx >= 4:
+                    q["correct_index"] = 0
+                final_quiz.append(q)
+        
+        _emit(status_callback, "🎉 Step 10 — Ready!", 1.0)
+        return final_quiz
+    except Exception as e:
+        print(f"⚠️ Critic failed: {e}")
+        return initial_quiz[:n]
+    
+def _parse_json(text: str, is_list: bool = True):
+    """Robust extraction of the outermost JSON block, cleaned for Llama/DeepSeek noise."""
+    text = re.sub(r'<think>[\s\S]*?</think>', '', text).strip()
+    start_char = '[' if is_list else '{'
+    end_char = ']' if is_list else '}'
+    
+    try:
+        start_idx = text.find(start_char)
+        end_idx = text.rfind(end_char)
+        if start_idx != -1 and end_idx != -1:
+            candidate = text[start_idx:end_idx+1]
+            return json.loads(candidate)
+    except:
+        pass
+    return [] if is_list else {}
+
+
+def generate_essay_questions(llm, lesson_name: str, n: int, **kwargs) -> list[dict]:
+    store = QuizGraphStore()
+    context, _ = _retrieve_graph_context(store, lesson_name)
+    if not context: return []
+    
+    prompt = f"Using this context:\n{context}\n\nGenerate {n} essay questions. Return JSON list."
+    try:
+        raw = llm.invoke(prompt).content
+        return _parse_json(raw, is_list=True)
+    except:
+        return []
+
+
+def evaluate_essay_response(llm, question_obj: dict, student_text: str) -> dict:
+    prompt = f"QUESTION: {question_obj['question']}\nANSWER: {student_text}\n\nGrade 0-10. Return JSON: {{'score': 0, 'feedback': ''}}"
+    try:
+        raw = llm.invoke(prompt).content
+        return _parse_json(raw, is_list=False) or {"score": 0, "feedback": "Parse error."}
+    except:
+        return {"score": 0, "feedback": "Error."}
