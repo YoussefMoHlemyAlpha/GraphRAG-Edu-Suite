@@ -1,5 +1,47 @@
+# Environment
 .env
-__pycache__/
 venv/
+__pycache__/
+
+# Runtime data
+*.jsonl
+*.log
+diag_output.txt
+rag_metrics.jsonl
+demo_metrics.jsonl
+
+# IDE
+.vscode/
+.idea/
+.kiro/
+
+# Streamlit
 .streamlit/config.toml
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Neo4j
+neo4j/
+
+# Temporary files
+*.tmp
+*.bak
+*~
+
+# Python
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Cleanup plan (temporary)
+CLEANUP_PLAN.md

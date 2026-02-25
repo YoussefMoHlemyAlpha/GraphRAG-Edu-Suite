@@ -13,3 +13,4 @@ PyPDF2
 altair
 pymupdf
 plotly
+pytest

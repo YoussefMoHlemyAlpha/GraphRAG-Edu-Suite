@@ -86,7 +86,7 @@ def extract_text_from_pdf(pdf_file) -> str:
 
 
 def perform_thematic_chunking(llm, text: str, target_size: int = 4000) -> List[str]:
-    """Uses DeepSeek-R1 to identify logical/thematic shifts for semantic chunking."""
+    """Uses Gemma3 to identify logical/thematic shifts for semantic chunking."""
     # First, do a rough split into segments of ~8000 chars to avoid overwhelming the context
     paragraphs = re.split(r'\n\s*\n', text)
     segments = []
@@ -254,7 +254,7 @@ def process_pdf_to_graph(
     doc_id = f"doc_{lesson_name.replace(' ', '_')}"
 
     from engine.vram_util import stop_ollama_model
-    stop_ollama_model("llama3.2:latest") # Clear VRAM for DeepSeek
+    stop_ollama_model("llama3.2:latest") # Clear VRAM for Gemma3
     
     _emit(status_callback, "📄 Extracting text…", 0.10)
     full_text = extract_text_from_pdf(pdf_file)
@@ -264,7 +264,7 @@ def process_pdf_to_graph(
         raise ValueError("The PDF contains no machine-readable text. It might be a scan or images-only.")
 
     _emit(status_callback, "✂️ Semantic Thematic Chunking…", 0.20)
-    # Use thematic chunking with DeepSeek-R1
+    # Use thematic chunking with Gemma3
     chunks = perform_thematic_chunking(llm, full_text)
     
     if not chunks:
@@ -277,9 +277,20 @@ def process_pdf_to_graph(
     for i, chunk in enumerate(chunks):
         pct = 0.30 + (0.40 * (i / len(chunks)))
         _emit(status_callback, f"  Processing batch {i+1}/{len(chunks)}…", pct)
-        data = extract_graph_data(llm, chunk)
-        all_data["entities"].extend(data.get("entities", []))
-        all_data["relationships"].extend(data.get("relationships", []))
+        try:
+            data = extract_graph_data(llm, chunk)
+            if data:
+                all_data["entities"].extend(data.get("entities", []))
+                all_data["relationships"].extend(data.get("relationships", []))
+                print(f"  ✅ Batch {i+1}: Extracted {len(data.get('entities', []))} entities, {len(data.get('relationships', []))} relationships")
+            else:
+                print(f"  ⚠️ Batch {i+1}: No data extracted")
+        except Exception as e:
+            print(f"  ❌ Batch {i+1} Error: {e}")
+            import traceback
+            traceback.print_exc()
+            # Continue with next batch instead of failing completely
+            continue
 
     if not all_data["entities"] and not all_data["relationships"]:
         _emit(status_callback, "❌ Error: Could not extract any knowledge.", 0.60)
