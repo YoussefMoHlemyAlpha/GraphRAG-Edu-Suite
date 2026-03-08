@@ -1,0 +1,4 @@
+FROM qwen3.5:4b
+
+# Let Ollama automatically optimize GPU usage for available VRAM
+PARAMETER num_gpu -1

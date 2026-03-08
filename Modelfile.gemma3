@@ -1,0 +1,4 @@
+FROM gemma3:4b
+
+# Optimize for maximum GPU usage on GTX 1650 4GB
+PARAMETER num_gpu 40

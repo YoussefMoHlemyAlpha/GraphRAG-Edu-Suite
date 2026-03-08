@@ -1,0 +1,4 @@
+FROM llama3.2:latest
+
+# Optimize for maximum GPU usage on GTX 1650 4GB
+PARAMETER num_gpu 40

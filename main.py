@@ -60,25 +60,27 @@ st.set_page_config(
 )
 
 # ── Model Initialisation ─────────────────────────────────────────────────────
-# Using Gemma3 (4B) for high-quality extraction and generation
+# All models configured with CUDA GPU acceleration (num_gpu=-1 for automatic optimization)
+
+# Using Gemma3 (4B) GPU-optimized for high-quality extraction and generation
 extraction_llm = ChatOllama(
-    model="gemma3:4b", 
+    model="gemma3-gpu", 
     temperature=0,
     num_ctx=4096,
     timeout=90  # 90 second timeout for extraction
 )
 
-# Using Gemma3 (4B) for fast and reliable Quiz Generation with better factual accuracy
+# Using Gemma3 (4B) GPU-optimized for fast and reliable Quiz Generation
 quiz_llm = ChatOllama(
-    model="gemma3:4b",
+    model="gemma3-gpu",
     temperature=0,
     num_ctx=4096,
     timeout=60  # 60 second timeout
 )
 
-# Using Llama 3.2 for critique and review
+# Using Llama 3.2 GPU-optimized for critique and review
 critic_llm = ChatOllama(
-    model="llama3.2:latest",
+    model="llama3.2-gpu",
     temperature=0,
     num_ctx=4096,
     timeout=60
